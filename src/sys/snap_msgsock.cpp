@@ -26,6 +26,13 @@
 
 #include "snap_msgsock.h"
 
+#ifdef OS_WINDOWS
+    #define poll WSAPoll
+#else
+    #include <poll.h>
+#endif
+
+
 //---------------------------------------------------------------------------
 
 static SocketsLayer SocketsLayerInitializer;
@@ -285,50 +292,46 @@ int TMsgSocket::SockCheck(int SockResult)
 //---------------------------------------------------------------------------
 bool TMsgSocket::CanWrite(int Timeout)
 {
-    timeval TimeV;
-    int64_t x;
-    fd_set FDset;
+    struct pollfd fds;
 
 	if(FSocket == INVALID_SOCKET)
 		return false;
 
-    TimeV.tv_usec = (Timeout % 1000) * 1000;
-    TimeV.tv_sec = Timeout / 1000;
+    fds.fd = FSocket;
+    fds.events = POLLOUT;
+    fds.revents = 0;
 
-    FD_ZERO(&FDset);
-    FD_SET(FSocket, &FDset);
+    int result = poll(&fds, 1, Timeout);
 
-    x = select(FSocket + 1, NULL, &FDset, NULL, &TimeV); //<-Ignore this warning in 64bit Visual Studio
-    if (x==(int)SOCKET_ERROR) 
+    if (result == SOCKET_ERROR)
     {
         LastTcpError = GetLastSocketError();
-        x=0;
+        return false;
     }
-    return (x > 0);
+
+    return (result > 0 && (fds.revents & POLLOUT));
 }
 //---------------------------------------------------------------------------
 bool TMsgSocket::CanRead(int Timeout)
 {
-    timeval TimeV;
-    int64_t x;
-    fd_set FDset;
+    struct pollfd fds;
 
 	if(FSocket == INVALID_SOCKET)
 		return false;
 
-	TimeV.tv_usec = (Timeout % 1000) * 1000;
-    TimeV.tv_sec = Timeout / 1000;
+    fds.fd = FSocket;
+    fds.events = POLLIN;
+    fds.revents = 0;
 
-    FD_ZERO(&FDset);
-    FD_SET(FSocket, &FDset);
+    int result = poll(&fds, 1, Timeout);
 
-    x = select(FSocket + 1, &FDset, NULL, NULL, &TimeV); //<-Ignore this warning in 64bit Visual Studio
-    if (x==(int)SOCKET_ERROR)
+    if (result == SOCKET_ERROR)
     {
-       LastTcpError = GetLastSocketError();
-       x=0;
+        LastTcpError = GetLastSocketError();
+        return false;
     }
-    return (x > 0);
+
+    return (result > 0 && (fds.revents & POLLIN));
 }
 //---------------------------------------------------------------------------
 #ifdef NON_BLOCKING_CONNECT
@@ -337,10 +340,9 @@ bool TMsgSocket::CanRead(int Timeout)
 //
 int TMsgSocket::SckConnect()
 {
-	int n, flags, err;
+	int result, flags, err;
 	socklen_t len;
-	fd_set rset, wset;
-	struct timeval tval;
+    struct pollfd fds;
 
  	SetSin(RemoteSin, RemoteAddress, RemotePort);
 
@@ -350,27 +352,27 @@ int TMsgSocket::SckConnect()
 			flags = fcntl(FSocket, F_GETFL, 0);
 			if (flags >= 0) {
 				if (fcntl(FSocket, F_SETFL, flags | O_NONBLOCK)  != -1) {
-					n = connect(FSocket, (struct sockaddr*)&RemoteSin, sizeof(RemoteSin));
-					if (n < 0) {
+					result = connect(FSocket, (struct sockaddr*)&RemoteSin, sizeof(RemoteSin));
+					if (result < 0) {
 						if (errno != EINPROGRESS) {
 							LastTcpError = GetLastSocketError();
 						}
 						else {
 							// still connecting ... 
-							FD_ZERO(&rset);
-							FD_SET(FSocket, &rset);
-							wset = rset;
-							tval.tv_sec = PingTimeout / 1000;
-							tval.tv_usec = (PingTimeout % 1000) * 1000;
 
-							n = select(FSocket+1, &rset, &wset, NULL, 
-							           (PingTimeout ? &tval : NULL));
-							if (n == 0) {
+							fds.fd = FSocket;
+							fds.events = POLLIN | POLLOUT;
+							fds.revents = 0;
+
+							result = poll(&fds, 1, PingTimeout ? PingTimeout : -1);
+
+							if (result == 0) {
 								// timeout
 								LastTcpError = WSAEHOSTUNREACH;
 							}
-							else {
-								if (FD_ISSET(FSocket, &rset) || FD_ISSET(FSocket, &wset)) {
+							else if(result > 0) {
+								// socket has activity - check connection status
+								if (fds.revents & (POLLIN | POLLOUT)) {
 									err = 0;
 									len = sizeof(err);						
 									if (getsockopt(
@@ -396,9 +398,13 @@ int TMsgSocket::SckConnect()
 									LastTcpError = -1;
 								}
 							}
+							else {
+								// poll() error
+								LastTcpError = GetLastSocketError();
+							}
 						} // still connecting
 					} 
-					else if (n == 0) { 
+					else if (result == 0) { 
 						// connected immediatly
 						GetLocal();
 						ClientHandle = LocalSin.sin_addr.s_addr;
