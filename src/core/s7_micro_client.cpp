@@ -23,6 +23,7 @@
 |  copy of Lesser GNU General Public License along with Snap7.                 |
 |  If not, see  http://www.gnu.org/licenses/                                   |
 |=============================================================================*/
+#define _CRT_SECURE_NO_WARNINGS
 #include "s7_micro_client.h"
 //---------------------------------------------------------------------------
 

@@ -23,6 +23,8 @@
 |  copy of Lesser GNU General Public License along with Snap7.                 |
 |  If not, see  http://www.gnu.org/licenses/                                   |
 |=============================================================================*/
+#define _WINSOCK_DEPRECATED_NO_WARNINGS
+#define _CRT_SECURE_NO_WARNINGS
 #include "s7_text.h"
 //---------------------------------------------------------------------------
 #ifndef OS_WINDOWS
@@ -61,7 +63,7 @@ char* NumToString(int Value, int Base, int Len, char* Result)
 	
 	if (Len > 0)
 	{
-		int Delta = Len - strlen(CNumber); // Len is max 8 in this program
+		int Delta = int(Len - strlen(CNumber)); // Len is max 8 in this program
 		if (Delta > 0)
 		{
 			strncpy(Result, Pad, Delta);

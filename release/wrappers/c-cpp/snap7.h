@@ -132,7 +132,13 @@ extern "C" {
 
 #ifdef OS_WINDOWS
 # define S7API __stdcall
+# ifdef snap7_EXPORTS
+#  define SNAP7_API __declspec(dllexport)
+# else
+#  define SNAP7_API __declspec(dllimport)
+# endif
 #else
+# define SNAP7_API
 # define S7API
 #endif
 
@@ -754,7 +760,7 @@ int S7API Par_ErrorText(int Error, char *Text, int TextLen);
 //******************************************************************************
 //                           CLIENT CLASS DEFINITION
 //******************************************************************************
-class TS7Client
+class SNAP7_API TS7Client
 {
 private:
     S7Object Client;
@@ -856,10 +862,11 @@ public:
 	int AsDBFill(int DBNumber, int FillChar);
 };
 typedef TS7Client *PS7Client;
+
 //******************************************************************************
 //                           SERVER CLASS DEFINITION
 //******************************************************************************
-class TS7Server
+class SNAP7_API TS7Server
 {
 private:
     S7Object Server;
@@ -898,7 +905,7 @@ typedef TS7Server *PS7Server;
 //******************************************************************************
 //                          PARTNER CLASS DEFINITION
 //******************************************************************************
-class TS7Partner
+class SNAP7_API TS7Partner
 {
 private:
 	S7Object Partner; // Partner Handle
