@@ -1712,8 +1712,13 @@ int TSnap7MicroClient::opReadSZL()
                         // Gets Unit's function sequence
                         Seq_in=ResParams->Seq;
                         Target=PS7SZLList(pbyte(&opData)+Offset);
-                        memcpy(Target, PDataFirst, DataSZL);
-                        Offset+=DataSZL;
+                        if (Offset + DataSZL <= sizeof(opData))
+                        {
+                            memcpy(Target, PDataFirst, DataSZL);
+                            Offset+=DataSZL;
+                        }
+                        else
+                            Result=errCliBufferTooSmall;
                     }
                     else
                         Result=CpuError(ResDataFirst->Ret);
@@ -1736,8 +1741,13 @@ int TSnap7MicroClient::opReadSZL()
                         // Gets Unit's function sequence
                         Seq_in=ResParams->Seq;
                         Target=PS7SZLList(pbyte(&opData)+Offset);
-                        memcpy(Target, PDataNext, DataSZL);
-                        Offset+=DataSZL;
+                        if (Offset + DataSZL <= sizeof(opData))
+                        {
+                            memcpy(Target, PDataNext, DataSZL);
+                            Offset+=DataSZL;
+                        }
+                        else
+                            Result=errCliBufferTooSmall;
                     }
                     else
                         Result=CpuError(ResDataNext->Ret);
