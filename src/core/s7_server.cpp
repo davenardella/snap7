@@ -363,10 +363,14 @@ word TS7Worker::ReadArea(PResFunReadItem ResItemData, PReqFunReadItem ReqItemPar
 
     // Checks timers/counters coherence
     if ((ReqItemPar->Area==S7AreaTM) ^ (ReqItemPar->TransportSize==S7WLTimer))
+    {
         return RA_OutOfRange(ResItemData, EV);
+    }
 
     if ((ReqItemPar->Area==S7AreaCT) ^ (ReqItemPar->TransportSize==S7WLCounter))
+    {
         return RA_OutOfRange(ResItemData, EV);
+    }
 
     // Calcs size
 	Elements = SwapWord(ReqItemPar->Length);
@@ -624,10 +628,14 @@ byte TS7Worker::WriteArea(PReqFunWriteDataItem ReqItemData, PReqFunWriteItem Req
 
     // Checks timers/counters coherence
     if ((ReqItemPar->Area==S7AreaTM) ^ (ReqItemPar->TransportSize==S7WLTimer))
+    {
         return WA_OutOfRange(EV);
+    }
 
 	if ((ReqItemPar->Area==S7AreaCT) ^ (ReqItemPar->TransportSize==S7WLCounter))
+    {
         return WA_OutOfRange(EV);
+    }
 
 	// Calcs size
 	Elements = SwapWord(ReqItemPar->Length);

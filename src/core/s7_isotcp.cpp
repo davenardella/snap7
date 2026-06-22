@@ -160,14 +160,12 @@ void TIsoTcpSocket::IsoParsePDU(TIsoControlPDU pdu)
 int TIsoTcpSocket::IsoConfirmConnection(u_char PDUType)
 {
     PIsoControlPDU CPDU = PIsoControlPDU(&PDU);
-	u_short TempRef;
 
 	ClrIsoError();
 	PDU.COTP.PDUType=PDUType;
 	// Exchange SrcRef<->DstRef, not strictly needed by COTP 8073 but S7PLC as client needs it.
-	TempRef=CPDU->COTP.DstRef;
 	CPDU->COTP.DstRef=CPDU->COTP.SrcRef;
-	CPDU->COTP.SrcRef=0x0100;//TempRef;
+	CPDU->COTP.SrcRef=0x0100;
 
 	return SendPacket(&PDU,PDUSize(&PDU));
 }

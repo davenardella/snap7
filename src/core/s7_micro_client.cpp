@@ -2672,7 +2672,14 @@ void TSnap7MicroClient::SetConnectionParams(const char *RemAddress, word LocalTS
 {
      SrcTSap = LocalTSAP;
      DstTSap = RemoteTSAP;
+#if defined(__GNUC__) && !defined(__clang__)
+    #pragma GCC diagnostic push
+    #pragma GCC diagnostic ignored "-Wstringop-truncation"
+#endif
      strncpy(RemoteAddress, RemAddress, 16);
+#if defined(__GNUC__) && !defined(__clang__)
+    #pragma GCC diagnostic pop
+#endif
 }
 //---------------------------------------------------------------------------
 int TSnap7MicroClient::ConnectTo(const char *RemAddress, int Rack, int Slot)
@@ -3303,7 +3310,14 @@ int TSnap7MicroClient::SetSessionPassword(char *Password)
         // prepares an 8 char string filled with spaces
         memset(&opData,0x20,8);
         // copies
+#if defined(__GNUC__) && !defined(__clang__)
+    #pragma GCC diagnostic push
+    #pragma GCC diagnostic ignored "-Wstringop-truncation"
+#endif
         strncpy((char*)&opData,Password,L);
+#if defined(__GNUC__) && !defined(__clang__)
+    #pragma GCC diagnostic pop
+#endif
         Job.Op       =s7opSetPassword;
         JobStart     =SysGetTick();
         return PerformOperation();

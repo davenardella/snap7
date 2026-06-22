@@ -207,8 +207,6 @@ typedef TRawSocketPinger *PRawSocketPinger;
 class TPinger
 {
 private:
-    PRawSocketPinger RawPinger;
-    bool RawAvail;
 #ifdef OS_WINDOWS
 	bool WinPing(longword ip_addr, int Timeout);
 #endif
