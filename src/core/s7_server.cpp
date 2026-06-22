@@ -1746,6 +1746,13 @@ TSnap7Server::TSnap7Server()
 //------------------------------------------------------------------------------
 TSnap7Server::~TSnap7Server()
 {
+    // Stop worker/listener threads before destroying derived state. The base
+    // destructor stops them too, but only after ~TSnap7Server has run and the
+    // vtable has reverted to the base - a worker still in a virtual callback
+    // would then act on a half-destroyed object. Destroying + Stop() here (both
+    // idempotent) ensure workers have exited before DisposeAll().
+    Destroying = true;
+    Stop();
     DisposeAll();
 	delete CSRWHook;
 }
