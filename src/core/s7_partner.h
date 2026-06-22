@@ -29,8 +29,6 @@
 #include "snap_threads.h"
 #include "s7_peer.h"
 //---------------------------------------------------------------------------
-using namespace std;
-//---------------------------------------------------------------------------
 
 #define MaxPartners 256
 #define MaxAdapters 256

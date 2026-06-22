@@ -249,7 +249,14 @@ int TConnectionServer::Start()
 //---------------------------------------------------------------------------
 int TConnectionServer::StartTo(const char *Address)
 {
+#if defined(__GNUC__) && !defined(__clang__)
+    #pragma GCC diagnostic push
+    #pragma GCC diagnostic ignored "-Wstringop-truncation"
+#endif
     strncpy(FLocalAddress,Address,16);
+#if defined(__GNUC__) && !defined(__clang__)
+    #pragma GCC diagnostic pop
+#endif
     return Start();
 }
 //---------------------------------------------------------------------------
