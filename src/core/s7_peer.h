@@ -34,7 +34,7 @@ const longword errPeerMask 	     = 0xFFF00000;
 const longword errPeerBase       = 0x000FFFFF;
 const longword errNegotiatingPDU = 0x00100000;
 
-class TSnap7Peer: public TIsoTcpSocket
+class SNAP7_API TSnap7Peer: public TIsoTcpSocket
 {
 private:
     word cntword;

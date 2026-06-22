@@ -104,9 +104,15 @@
 #ifdef OS_WINDOWS
 # define EXPORTSPEC extern "C" __declspec ( dllexport )
 # define S7API __stdcall
+# ifdef SNAP7_EXPORTS
+#   define SNAP7_API __declspec ( dllexport )
+# else
+#   define SNAP7_API __declspec ( dllimport )
+# endif
 #else
 # define EXPORTSPEC extern "C"
 # define S7API
+# define SNAP7_API
 #endif
 
 // Exact length types regardless of platform/processor
