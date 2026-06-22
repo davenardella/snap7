@@ -137,7 +137,14 @@ void TS7Worker::FillTime(PS7Time PTime)
 {
     time_t Now;
     time(&Now);
-    struct tm *DT = localtime (&Now);
+    // Reentrant: plain localtime() shares a static tm across threads (data race).
+    struct tm DTbuf;
+#ifdef OS_WINDOWS
+    struct tm *DT = (localtime_s(&DTbuf, &Now) == 0) ? &DTbuf : NULL;
+#else
+    struct tm *DT = localtime_r(&Now, &DTbuf);
+#endif
+    if (DT == NULL) return;
 
     PTime->bcd_year=BCD(DT->tm_year-100);
     PTime->bcd_mon =BCD(DT->tm_mon+1);

@@ -84,8 +84,14 @@ char* IntToString(int Value, char* Result)
 //---------------------------------------------------------------------------
 char* TimeToString(time_t dt, char* Result)
 {
-	struct tm * DateTime = localtime(&dt);
-	if (DateTime != NULL) 
+	// Reentrant: plain localtime() shares a static tm across threads (data race).
+	struct tm DTbuf;
+#ifdef OS_WINDOWS
+	struct tm * DateTime = (localtime_s(&DTbuf, &dt) == 0) ? &DTbuf : NULL;
+#else
+	struct tm * DateTime = localtime_r(&dt, &DTbuf);
+#endif
+	if (DateTime != NULL)
 		strftime(Result, 50, "%Y-%m-%d %H:%M:%S", DateTime);
 	else
 		*Result = '\0';
