@@ -820,7 +820,13 @@ void TSnap7MicroClient::FillTime(word SiemensTime, char *PTime)
 	// SiemensTime -> number of seconds after 1/1/1984
 	// This is not S7 date and time but is used only internally for block info
     time_t TheDate = (SiemensTime * 86400)+ DeltaSecs;
-    struct tm * timeinfo = localtime (&TheDate);
+    // Reentrant: plain localtime() shares a static tm across threads (data race).
+    struct tm DTbuf;
+#ifdef OS_WINDOWS
+    struct tm * timeinfo = (localtime_s(&DTbuf, &TheDate) == 0) ? &DTbuf : NULL;
+#else
+    struct tm * timeinfo = localtime_r(&TheDate, &DTbuf);
+#endif
     if (timeinfo!=NULL) {
         strftime(PTime,11,"%Y/%m/%d",timeinfo);
     }
@@ -3105,7 +3111,13 @@ int TSnap7MicroClient::SetPlcSystemDateTime()
 {
     time_t Now;
     time(&Now);
-    struct tm * DateTime = localtime (&Now);
+    // Reentrant: plain localtime() shares a static tm across threads (data race).
+    struct tm DTbuf;
+#ifdef OS_WINDOWS
+    struct tm * DateTime = (localtime_s(&DTbuf, &Now) == 0) ? &DTbuf : NULL;
+#else
+    struct tm * DateTime = localtime_r(&Now, &DTbuf);
+#endif
     return SetPlcDateTime(DateTime);
 }
 //---------------------------------------------------------------------------
