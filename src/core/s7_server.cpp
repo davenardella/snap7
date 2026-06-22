@@ -329,7 +329,7 @@ word TS7Worker::ReadArea(PResFunReadItem ResItemData, PReqFunReadItem ReqItemPar
 	word Elements;
     longword Start, Size, ASize, AStart;
     longword *PAdd;
-    byte BitIndex, ByteVal;
+    byte BitIndex = 0, ByteVal;
 	int Multiplier;
     void *Source = NULL;
     PSnapCriticalSection pcs;
@@ -595,7 +595,7 @@ byte TS7Worker::WriteArea(PReqFunWriteDataItem ReqItemData, PReqFunWriteItem Req
 	PSnapCriticalSection pcs;
 	longword Start, Size, ASize, DataLen, AStart;
 	pbyte Target = NULL;
-	byte BitIndex;
+	byte BitIndex = 0;
 
     EV.EvStart   =0;
 	EV.EvSize    =0;
