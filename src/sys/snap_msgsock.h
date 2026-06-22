@@ -221,7 +221,7 @@ public:
 };
 typedef TPinger *PPinger;
 //---------------------------------------------------------------------------
-class TSnapBase // base class endian-aware
+class SNAP7_API TSnapBase // base class endian-aware
 {
 private:
 		bool LittleEndian;
@@ -232,7 +232,7 @@ public:
 		TSnapBase();
 };
 //---------------------------------------------------------------------------
-class TMsgSocket : public TSnapBase
+class SNAP7_API TMsgSocket : public TSnapBase
 {
 private:
         PPinger Pinger;

@@ -245,7 +245,7 @@ struct TSnap7Job
     int IParam;   // Used for full upload and CopyRamToRom extended timeout
 };
 
-class TSnap7MicroClient: public TSnap7Peer
+class SNAP7_API TSnap7MicroClient: public TSnap7Peer
 {
 private:
     void FillTime(word SiemensTime, char *PTime);
