@@ -52,7 +52,13 @@ void* ThreadProc(void* param)
     Thread->Closed = true;
     if (Thread->FreeOnTerminate)
     {
+#if defined(POSIX) && (!defined(OS_SOLARIS_NATIVE_THREADS))
+        pthread_t self = pthread_self();
+#endif
         delete Thread;
+#if defined(POSIX) && (!defined(OS_SOLARIS_NATIVE_THREADS))
+        pthread_detach(self);
+#endif
     };
 #ifdef OS_WINDOWS
     ExitThread(0);
@@ -98,8 +104,8 @@ void TSnapThread::ThreadCreate()
 #if defined(POSIX) && (!defined(OS_SOLARIS_NATIVE_THREADS))
     pthread_attr_t a;
     pthread_attr_init(&a);
-    pthread_attr_setdetachstate(&a, PTHREAD_CREATE_DETACHED);
     pthread_create(&th, &a, &ThreadProc, this);
+    pthread_attr_destroy(&a);
 #endif  
 #if defined(OS_OSX)
     pthread_create(&th, 0, &ThreadProc, this);
