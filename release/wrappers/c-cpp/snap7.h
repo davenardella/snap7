@@ -164,9 +164,13 @@ typedef struct
   int   tm_isdst;
 }tm;
 
+#if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 199901L
+#include <stdbool.h>
+#else
 typedef int bool;
-#define false 0;
-#define true  1;
+#define false 0
+#define true  1
+#endif
 #endif
 
 const int errLibInvalidParam  = -1;
