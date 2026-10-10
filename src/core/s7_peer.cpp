@@ -63,6 +63,10 @@ word TSnap7Peer::GetNextWord()
      return cntword++;
 }
 //---------------------------------------------------------------------------
+// DYNACOM patch 2 : sotto questa lunghezza non ci sta nemmeno un elemento da 8 byte
+// con le intestazioni di lettura e scrittura (le CPU vere rispondono da 240 in su)
+static const int DynaMinPDULength = 64;
+
 int TSnap7Peer::NegotiatePDULength( )
 {
     int Result, IsoSize = 0;
@@ -96,6 +100,20 @@ int TSnap7Peer::NegotiatePDULength( )
 	    Result = SetError(errNegotiatingPDU);
         if ( Result == 0 )
 	    PDULength = SwapWord(ResNegotiate->PDULength);
+        // DYNACOM patch 2 : la CPU puo' solo ABBASSARE la lunghezza chiesta. Un valore
+        // piu' grande veniva preso per buono e opWriteArea ci dimensionava la copia nel
+        // buffer di trasmissione (PDU.Payload, IsoPayload_Size byte): scrittura oltre il
+        // buffer (segnalazione upstream #17). Un valore troppo piccolo azzera il numero
+        // di elementi per telegramma e letture e scritture non finiscono mai.
+        if ( Result == 0 )
+        {
+            if ( PDULength > PDURequest )
+                PDULength = PDURequest;
+            if ( PDULength > IsoPayload_Size )
+                PDULength = IsoPayload_Size;
+            if ( PDULength < DynaMinPDULength )
+                Result = SetError(errNegotiatingPDU);
+        }
     }
     return Result;
 }

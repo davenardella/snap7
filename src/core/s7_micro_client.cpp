@@ -1795,8 +1795,17 @@ int TSnap7MicroClient::opReadSZL()
                         // Gets Unit's function sequence
                         Seq_in=ResParams->Seq;
                         Target=PS7SZLList(pbyte(&opData)+Offset);
-                        memcpy(Target, PDataFirst, DataSZL);
-                        Offset+=DataSZL;
+                        // DYNACOM patch 2 : la lunghezza la dichiara la CPU. Mai negativa,
+                        // mai piu' di quanto e' arrivato, mai oltre opData (upstream #11)
+                        if ((DataSZL < 0) || (DataSZL > IsoSize - int(ResHeaderSize17 + sizeof(TS7Params7) + 8)))
+                            Result=errCliInvalidDataSizeRecvd;
+                        else if (Offset + uintptr_t(DataSZL) > sizeof(opData))
+                            Result=errCliBufferTooSmall;
+                        else
+                        {
+                            memcpy(Target, PDataFirst, DataSZL);
+                            Offset+=DataSZL;
+                        }
                     }
                     else
                         Result=CpuError(ResDataFirst->Ret);
@@ -1819,8 +1828,16 @@ int TSnap7MicroClient::opReadSZL()
                         // Gets Unit's function sequence
                         Seq_in=ResParams->Seq;
                         Target=PS7SZLList(pbyte(&opData)+Offset);
-                        memcpy(Target, PDataNext, DataSZL);
-                        Offset+=DataSZL;
+                        // DYNACOM patch 2 : come sopra
+                        if ((DataSZL < 0) || (DataSZL > IsoSize - int(ResHeaderSize17 + sizeof(TS7Params7) + 4)))
+                            Result=errCliInvalidDataSizeRecvd;
+                        else if (Offset + uintptr_t(DataSZL) > sizeof(opData))
+                            Result=errCliBufferTooSmall;
+                        else
+                        {
+                            memcpy(Target, PDataNext, DataSZL);
+                            Offset+=DataSZL;
+                        }
                     }
                     else
                         Result=CpuError(ResDataNext->Ret);
