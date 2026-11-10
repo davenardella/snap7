@@ -25,6 +25,41 @@
 |=============================================================================*/
 #include "s7_micro_client.h"
 //---------------------------------------------------------------------------
+// DYNACOM patch 1 (2026-09-19) - la risposta deve essere di QUESTA richiesta.
+//
+// snap7 dopo un timeout di ricezione resta connesso: la risposta che arriva
+// in ritardo veniva letta come risposta della richiesta SUCCESSIVA, e le
+// funzioni di lettura copiavano nel buffer del chiamante la lunghezza
+// dichiarata DALLA RISPOSTA (scrittura fuori dai limiti, vista su un
+// impianto). Qui si verifica, per i job di lettura e scrittura, che la
+// risposta sia una ack S7 con lo stesso numero di sequenza della richiesta e
+// la stessa funzione; le copie verso il chiamante sono limitate a quanto
+// chiesto e a quanto ricevuto davvero. Ogni scarto = errCliInvalidPlcAnswer /
+// errCliInvalidDataSizeRecvd: il chiamante deve chiudere il collegamento.
+// Nessun cambio di ABI: funzione statica di questo file.
+static int DynaCheckJobAnswer(PS7ResHeader23 Answer, int RecvSize, word SeqOut, byte Func)
+{
+    if (RecvSize < ResHeaderSize23)
+        return errCliInvalidPlcAnswer;
+    if (Answer->P != 0x32)
+        return errCliInvalidPlcAnswer;
+    // 3 = ack con dati, 2 = ack senza dati (solo errore)
+    if ((Answer->PDUType != PduType_response) && (Answer->PDUType != pduResponse))
+        return errCliInvalidPlcAnswer;
+    // Richiesta e risposta tengono la sequenza cosi' come viaggia: confronto diretto
+    if (Answer->Sequence != SeqOut)
+        return errCliInvalidPlcAnswer;
+    // Con errore a livello funzione la CPU puo' non mandare i parametri
+    if (Answer->Error == 0)
+    {
+        if (RecvSize < ResHeaderSize23 + 2)
+            return errCliInvalidPlcAnswer;
+        if (*(pbyte(Answer) + ResHeaderSize23) != Func)
+            return errCliInvalidPlcAnswer;
+    }
+    return 0;
+}
+//---------------------------------------------------------------------------
 
 TSnap7MicroClient::TSnap7MicroClient()
 {
@@ -66,6 +101,8 @@ int TSnap7MicroClient::opReadArea()
      int TotElements;  // Total elements requested
      int Size;
      int Result;
+     word SeqOut;      // DYNACOM patch 1
+     int MaxRecv;      // DYNACOM patch 1
 
      WordSize=DataSizeByte(Job.WordLen); // The size in bytes of an element that we are asking for
      if (WordSize==0)
@@ -76,6 +113,10 @@ int TSnap7MicroClient::opReadArea()
      // Second check : transport size
 	 if ((Job.WordLen==S7WLBit) && (Job.Amount>1))
         return errCliInvalidTransportSize;
+     // Third check : negotiated PDU length. Without it (never connected, or
+     // negotiation failed) MaxElements below would be computed from garbage
+     if (PDULength < DynaMinPDULength)
+        return errNegotiatingPDU;
      // Request Params size
      RPSize    =sizeof(TReqFunReadItem)+2; // 1 item + FunRead + ItemsCount
      // Setup pointers (note : PDUH_out and PDU.Payload are the same pointer)
@@ -102,6 +143,7 @@ int TSnap7MicroClient::opReadArea()
           PDUH_out->PDUType = PduType_request;   // 0x01
           PDUH_out->AB_EX = 0x0000;              // Always 0x0000
           PDUH_out->Sequence = GetNextWord();    // AutoInc
+          SeqOut = PDUH_out->Sequence;           // DYNACOM patch 1 (il buffer e' lo stesso della risposta)
           PDUH_out->ParLen = SwapWord(RPSize);   // 14 bytes params
           PDUH_out->DataLen = 0x0000;            // No data
 
@@ -131,10 +173,19 @@ int TSnap7MicroClient::opReadArea()
 
           IsoSize = sizeof(TS7ReqHeader)+RPSize;
           Result = isoExchangeBuffer(0,IsoSize);
+          // DYNACOM patch 1 : e' la risposta di questa richiesta ?
+          if (Result==0)
+               Result = DynaCheckJobAnswer(Answer, IsoSize, SeqOut, pduFuncRead);
+          if ((Result==0) && (Answer->Error!=0))
+               Result = CpuError(SwapWord(Answer->Error));
           // Get Data
           if (Result==0)  // 1St level Iso
           {
                Size = 0;
+               // the item header (return code, transport size, length) must have arrived;
+               // otherwise ResData would be read from stale request bytes
+               if (IsoSize < ResHeaderSize23 + int(sizeof(TResFunReadParams)) + 4)
+                   return errCliInvalidPlcAnswer;
                // Item level error
                 if (ResData->ReturnCode==0xFF) // <-- 0xFF means Result OK
                 {
@@ -143,7 +194,18 @@ int TSnap7MicroClient::opReadArea()
                    // Adjust Size in accord of TransportSize
                    if ((ResData->TransportSize != TS_ResOctet) && (ResData->TransportSize != TS_ResReal) && (ResData->TransportSize != TS_ResBit))
                        Size = Size >> 3;
-                   memcpy(Target, &ResData->Data[0], Size);
+                   // DYNACOM patch 1 : mai piu' di quanto chiesto ne' di quanto ricevuto
+                   MaxRecv = IsoSize - (ResHeaderSize23 + int(sizeof(TResFunReadParams)) + 4);
+                   // one item per request and one answer PDU: a CPU answers exactly what
+                   // was asked or an error. A shorter answer would leave the caller's buffer
+                   // partly unfilled, or shift the following slices of a multi-PDU read
+                   if ((Size != int(NumElements) * WordSize) || (Size > MaxRecv))
+                   {
+                       Result = errCliInvalidDataSizeRecvd;
+                       Size = 0;
+                   }
+                   else
+                       memcpy(Target, &ResData->Data[0], Size);
                 }
                 else
                      Result = CpuError(ResData->ReturnCode);
@@ -177,6 +239,7 @@ int TSnap7MicroClient::opWriteArea()
      word NumElements; // Num of elements that we are asking for this telegram
      int TotElements;  // Total elements requested
      int Result = 0;
+     word SeqOut;      // DYNACOM patch 1
 
      WordSize=DataSizeByte(Job.WordLen); // The size in bytes of an element that we are pushing
      if (WordSize==0)
@@ -187,6 +250,10 @@ int TSnap7MicroClient::opWriteArea()
      // Second check : transport size
 	 if ((Job.WordLen==S7WLBit) && (Job.Amount>1))
         return errCliInvalidTransportSize;
+     // Third check : negotiated PDU length. Without it (never connected, or
+     // negotiation failed) MaxElements below would be computed from garbage
+     if (PDULength < DynaMinPDULength)
+        return errNegotiatingPDU;
 
      RHSize =sizeof(TS7ReqHeader)+    // Request header
              2+                       // FunWrite+ItemCount (of TReqFunWriteParams)
@@ -218,6 +285,7 @@ int TSnap7MicroClient::opWriteArea()
            PDUH_out->PDUType=PduType_request;   // 0x01
            PDUH_out->AB_EX=0x0000;              // Always 0x0000
            PDUH_out->Sequence=GetNextWord();    // AutoInc
+           SeqOut=PDUH_out->Sequence;           // DYNACOM patch 1
            PDUH_out->ParLen  =SwapWord(RPSize); // 14 bytes params
            PDUH_out->DataLen =SwapWord(Size+4);
 
@@ -278,6 +346,9 @@ int TSnap7MicroClient::opWriteArea()
            memcpy(Target, Source, Size);
            IsoSize=RHSize + Size;
            Result=isoExchangeBuffer(0,IsoSize);
+           // DYNACOM patch 1 : e' la risposta di questa richiesta ?
+           if (Result==0)
+               Result=DynaCheckJobAnswer(Answer, IsoSize, SeqOut, pduFuncWrite);
 
            if (Result==0) // 1St check : Iso result
            {
@@ -319,6 +390,9 @@ int TSnap7MicroClient::opReadMultiVars()
     int        IsoSize;
     pbyte      P;
     int        ItemsCount, c, Result;
+    word       SeqOut;      // DYNACOM patch 1
+    int        MaxRecv;     // DYNACOM patch 1
+    int        Expected;    // DYNACOM patch 1
 
     Item       = PS7DataItem(Job.pData);
     ItemsCount = Job.Amount;
@@ -349,6 +423,7 @@ int TSnap7MicroClient::opReadMultiVars()
     PDUH_out->PDUType=PduType_request;   // 0x01
     PDUH_out->AB_EX=0x0000;              // Always 0x0000
     PDUH_out->Sequence=GetNextWord();    // AutoInc
+    SeqOut=PDUH_out->Sequence;           // DYNACOM patch 1
     PDUH_out->ParLen=SwapWord(RPSize);   // Request params size
     PDUH_out->DataLen=0x0000;            // No data in output
 
@@ -393,6 +468,11 @@ int TSnap7MicroClient::opReadMultiVars()
 	if (Result!=0)
         return Result;
 
+    // DYNACOM patch 1 : e' la risposta di questa richiesta ?
+    Result=DynaCheckJobAnswer(Answer, IsoSize, SeqOut, pduFuncRead);
+    if (Result!=0)
+        return Result;
+
     // Function level error
     if (Answer->Error!=0)
     	return CpuError(SwapWord(Answer->Error));
@@ -400,10 +480,16 @@ int TSnap7MicroClient::opReadMultiVars()
     if (ResParams->ItemCount!=ItemsCount)
     	return errCliInvalidPlcAnswer;
 
+    // DYNACOM patch 1 : byte di dati ricevuti davvero dopo header e parametri
+    MaxRecv=IsoSize - (ResHeaderSize23 + int(sizeof(TResFunReadParams)));
+
     P=pbyte(ResParams)+sizeof(TResFunReadParams);
     Item = PS7DataItem(Job.pData);
     for (c = 0; c < ItemsCount; c++)
     {
+        // DYNACOM patch 1 : l'intestazione dell'item deve stare in cio' che e' arrivato
+        if (int(Offset)+4 > MaxRecv)
+            return errCliInvalidDataSizeRecvd;
         ResData[c] =PResFunReadItem(pbyte(P)+Offset);
         Slice=0;
         // Item level error
@@ -414,6 +500,11 @@ int TSnap7MicroClient::opReadMultiVars()
           // Adjust Size in accord of TransportSize
           if ((ResData[c]->TransportSize != TS_ResOctet) && (ResData[c]->TransportSize != TS_ResReal) && (ResData[c]->TransportSize != TS_ResBit))
             Slice=Slice >> 3;
+
+          // DYNACOM patch 1 : mai piu' di quanto chiesto ne' di quanto ricevuto
+          Expected=Item->Amount * DataSizeByte(Item->WordLen);
+          if ((int(Slice) > Expected) || (int(Offset)+4+int(Slice) > MaxRecv))
+              return errCliInvalidDataSizeRecvd;
 
 		  memcpy(Item->pdata, ResData[c]->Data, Slice);
           Item->Result=0;
@@ -444,6 +535,7 @@ int TSnap7MicroClient::opWriteMultiVars()
     word               RPSize; // ReqParams size
     word               Size;   // Write data size
     int                WordSize, Result;
+    word               SeqOut; // DYNACOM patch 1
 
     Item       = PS7DataItem(Job.pData);
     ItemsCount = Job.Amount;
@@ -476,6 +568,7 @@ int TSnap7MicroClient::opWriteMultiVars()
     PDUH_out->PDUType=PduType_request;   // 0x01
     PDUH_out->AB_EX=0x0000;              // Always 0x0000
     PDUH_out->Sequence=GetNextWord();    // AutoInc
+    SeqOut=PDUH_out->Sequence;           // DYNACOM patch 1
     PDUH_out->ParLen=SwapWord(RPSize);   // Request params size
 
     // Fill Params
@@ -563,6 +656,11 @@ int TSnap7MicroClient::opWriteMultiVars()
 
 	if (Result!=0)
 		return Result;
+
+    // DYNACOM patch 1 : e' la risposta di questa richiesta ?
+    Result=DynaCheckJobAnswer(Answer, IsoSize, SeqOut, pduFuncWrite);
+    if (Result!=0)
+        return Result;
 
 	// Function level error
 	if (Answer->Error!=0)
@@ -1592,6 +1690,11 @@ int TSnap7MicroClient::opDelete()
     return Result;
 }
 //---------------------------------------------------------------------------
+// cap on the slices of one SZL read; it only bounds the time a peer can keep the loop
+// going. Memory is protected by the per-slice size checks against opData. A CPU fills the PDU
+// (some 200 bytes), so a 64 KB SZL needs a few hundred slices; the peer may send smaller ones.
+static const int MaxSZLSlices = 2048;
+//---------------------------------------------------------------------------
 int TSnap7MicroClient::opReadSZL()
 {
     PS7Answer17         Answer;
@@ -1612,6 +1715,8 @@ int TSnap7MicroClient::opReadSZL()
     bool                NoRoom = false;
     uintptr_t           Offset =0;
     byte                Seq_in =0x00;
+    word                SeqOut =0;
+    int                 Slices =0;
 
     ID=Job.ID;
     Index=Job.Index;
@@ -1694,7 +1799,12 @@ int TSnap7MicroClient::opReadSZL()
             IsoSize=sizeof(TS7ReqHeader)+sizeof(TReqFunReadSZLNext)+DataSize;
          //--------------------------------------------------> prepare next
         }
+        SeqOut=PDUH_out->Sequence; // the answer overwrites the request buffer
         Result=isoExchangeBuffer(0,IsoSize);
+        // is it the answer to this request? (as DynaCheckJobAnswer for read/write)
+        if ((Result==0) && ((IsoSize < int(ResHeaderSize17 + sizeof(TS7Params7))) ||
+            (Answer->Header.P != 0x32) || (Answer->Header.PDUType != PduType_userdata) || (Answer->Header.Sequence != SeqOut)))
+            Result=errCliInvalidPlcAnswer;
         // Get Data
         if (Result==0)
         {
@@ -1712,8 +1822,17 @@ int TSnap7MicroClient::opReadSZL()
                         // Gets Unit's function sequence
                         Seq_in=ResParams->Seq;
                         Target=PS7SZLList(pbyte(&opData)+Offset);
-                        memcpy(Target, PDataFirst, DataSZL);
-                        Offset+=DataSZL;
+                        // DYNACOM patch 2 : la lunghezza la dichiara la CPU. Mai negativa,
+                        // mai piu' di quanto e' arrivato, mai oltre opData (upstream #11)
+                        if ((DataSZL < 0) || (DataSZL > IsoSize - int(ResHeaderSize17 + sizeof(TS7Params7) + 8)))
+                            Result=errCliInvalidDataSizeRecvd;
+                        else if (Offset + uintptr_t(DataSZL) > sizeof(opData))
+                            Result=errCliBufferTooSmall;
+                        else
+                        {
+                            memcpy(Target, PDataFirst, DataSZL);
+                            Offset+=DataSZL;
+                        }
                     }
                     else
                         Result=CpuError(ResDataFirst->Ret);
@@ -1736,8 +1855,16 @@ int TSnap7MicroClient::opReadSZL()
                         // Gets Unit's function sequence
                         Seq_in=ResParams->Seq;
                         Target=PS7SZLList(pbyte(&opData)+Offset);
-                        memcpy(Target, PDataNext, DataSZL);
-                        Offset+=DataSZL;
+                        // DYNACOM patch 2 : come sopra
+                        if ((DataSZL < 0) || (DataSZL > IsoSize - int(ResHeaderSize17 + sizeof(TS7Params7) + 4)))
+                            Result=errCliInvalidDataSizeRecvd;
+                        else if (Offset + uintptr_t(DataSZL) > sizeof(opData))
+                            Result=errCliBufferTooSmall;
+                        else
+                        {
+                            memcpy(Target, PDataNext, DataSZL);
+                            Offset+=DataSZL;
+                        }
                     }
                     else
                         Result=CpuError(ResDataNext->Ret);
@@ -1747,6 +1874,10 @@ int TSnap7MicroClient::opReadSZL()
             //------------------------------------------> get data next
             }
             First=false;
+            // "not done" is declared by the peer; beyond a sane number of slices
+            // the loop would run as long as the peer keeps answering
+            if ((Result==0) && (!Done) && (++Slices>MaxSZLSlices))
+                Result=errCliInvalidPlcAnswer;
         }
     //-------------------------------------------------------> read slices
     }

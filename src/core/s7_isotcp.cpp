@@ -454,7 +454,11 @@ int TIsoTcpSocket::isoRecvPDU(PIsoDataPDU Data)
     ClrIsoError();
 	pData = pbyte(&PDU.Payload);
 	do {
-		pData=pData+Offset;
+		// DYNACOM patch 2 : la posizione di scrittura e' inizio + Offset. Prima era
+		// pData=pData+Offset: Offset e' gia' cumulativo, quindi dal terzo frammento
+		// il puntatore correva piu' del limite "max" e si scriveva oltre PDU.Payload
+		// (segnalazione upstream #33; vale per client, server e partner).
+		pData=pbyte(&PDU.Payload)+Offset;
 		max =IsoPayload_Size-Offset; // Maximum packet allowed
 		if (max>0)
 		{
