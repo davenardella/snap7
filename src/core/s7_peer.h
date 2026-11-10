@@ -33,6 +33,9 @@
 const longword errPeerMask 	     = 0xFFF00000;
 const longword errPeerBase       = 0x000FFFFF;
 const longword errNegotiatingPDU = 0x00100000;
+// smallest PDU length we accept; below it not even one 8 byte element fits with the
+// read and write headers (real CPUs answer 240 and up). 0 means "not negotiated".
+const int DynaMinPDULength = 64;
 
 class TSnap7Peer: public TIsoTcpSocket
 {

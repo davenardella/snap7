@@ -30,6 +30,7 @@ TSnap7Peer::TSnap7Peer()
 {
     PDUH_out=PS7ReqHeader(&PDU.Payload);
     PDURequest=480; // Our request, FPDULength will contain the CPU answer
+    PDULength=0;    // was never initialised; 0 = not negotiated (see DynaMinPDULength)
     LastError=0;
 	cntword = 0;
     Destroying = false;
@@ -63,10 +64,6 @@ word TSnap7Peer::GetNextWord()
      return cntword++;
 }
 //---------------------------------------------------------------------------
-// DYNACOM patch 2 : sotto questa lunghezza non ci sta nemmeno un elemento da 8 byte
-// con le intestazioni di lettura e scrittura (le CPU vere rispondono da 240 in su)
-static const int DynaMinPDULength = 64;
-
 int TSnap7Peer::NegotiatePDULength( )
 {
     int Result, IsoSize = 0;
@@ -74,6 +71,7 @@ int TSnap7Peer::NegotiatePDULength( )
     PResFunNegotiateParams ResNegotiate;
     PS7ResHeader23 Answer;
     ClrError();
+    PDULength = 0; // no old or unchecked value survives a failed negotiation
     // Setup Pointers
     ReqNegotiate = PReqFunNegotiateParams(pbyte(PDUH_out) + sizeof(TS7ReqHeader));
     // Header
@@ -91,15 +89,19 @@ int TSnap7Peer::NegotiatePDULength( )
     ReqNegotiate->PDULength = SwapWord(PDURequest);
     IsoSize = sizeof( TS7ReqHeader ) + sizeof( TReqFunNegotiateParams );
     Result = isoExchangeBuffer(NULL, IsoSize);
-    if ((Result == 0) && (IsoSize == int(sizeof(TS7ResHeader23) + sizeof(TResFunNegotiateParams))))
+    // an answer of any other length used to return success without a PDU length
+    if ((Result == 0) && (IsoSize != int(sizeof(TS7ResHeader23) + sizeof(TResFunNegotiateParams))))
+        Result = SetError(errNegotiatingPDU);
+    if (Result == 0)
     {
+        int NegPDULength = 0;
         // Setup pointers
         Answer = PS7ResHeader23(&PDU.Payload);
         ResNegotiate = PResFunNegotiateParams(pbyte(Answer) + sizeof(TS7ResHeader23));
         if ( Answer->Error != 0 )
 	    Result = SetError(errNegotiatingPDU);
         if ( Result == 0 )
-	    PDULength = SwapWord(ResNegotiate->PDULength);
+	    NegPDULength = SwapWord(ResNegotiate->PDULength);
         // DYNACOM patch 2 : la CPU puo' solo ABBASSARE la lunghezza chiesta. Un valore
         // piu' grande veniva preso per buono e opWriteArea ci dimensionava la copia nel
         // buffer di trasmissione (PDU.Payload, IsoPayload_Size byte): scrittura oltre il
@@ -107,12 +109,14 @@ int TSnap7Peer::NegotiatePDULength( )
         // di elementi per telegramma e letture e scritture non finiscono mai.
         if ( Result == 0 )
         {
-            if ( PDULength > PDURequest )
-                PDULength = PDURequest;
-            if ( PDULength > IsoPayload_Size )
-                PDULength = IsoPayload_Size;
-            if ( PDULength < DynaMinPDULength )
+            if ( NegPDULength > PDURequest )
+                NegPDULength = PDURequest;
+            if ( NegPDULength > IsoPayload_Size )
+                NegPDULength = IsoPayload_Size;
+            if ( NegPDULength < DynaMinPDULength )
                 Result = SetError(errNegotiatingPDU);
+            else
+                PDULength = NegPDULength; // only a validated value is kept
         }
     }
     return Result;
